@@ -30,7 +30,17 @@ import {
   X
 } from 'lucide-react';
 
-let activeApiBase = (import.meta as any).env?.VITE_API_URL || 'http://localhost:5000/api/v1';
+function getDefaultApiBase(): string {
+  if (typeof window !== 'undefined') {
+    const stored = localStorage.getItem('pixel_perfect_api_base');
+    if (stored && stored.trim()) return stored.trim().replace(/\/+$/, '');
+  }
+  const envUrl = (import.meta as any).env?.VITE_API_URL;
+  if (envUrl && envUrl.trim()) return envUrl.trim().replace(/\/+$/, '');
+  return 'http://localhost:5000/api/v1';
+}
+
+let activeApiBase = getDefaultApiBase();
 
 async function apiFetch(path: string, options?: RequestInit): Promise<Response> {
   const token = localStorage.getItem('pixel_perfect_admin_token');
@@ -43,10 +53,12 @@ async function apiFetch(path: string, options?: RequestInit): Promise<Response> 
     headers
   };
 
+  const defaultBase = getDefaultApiBase();
   const bases = [
     activeApiBase,
-    activeApiBase.includes('5000') ? 'http://localhost:5001/api/v1' : 'http://localhost:5000/api/v1'
-  ];
+    defaultBase,
+    ...(defaultBase.includes('5000') ? ['http://localhost:5001/api/v1'] : [])
+  ].filter((v, idx, arr) => arr.indexOf(v) === idx);
 
   let lastError: any = null;
   for (const base of bases) {
@@ -63,8 +75,8 @@ async function apiFetch(path: string, options?: RequestInit): Promise<Response> 
     }
   }
 
-  activeApiBase = 'http://localhost:5000/api/v1';
-  throw lastError || new Error('Backend server unreachable');
+  activeApiBase = defaultBase;
+  throw lastError || new Error(`Backend server unreachable at ${activeApiBase}.`);
 }
 
 async function apiUpload(formData: FormData): Promise<Response> {
@@ -74,10 +86,12 @@ async function apiUpload(formData: FormData): Promise<Response> {
     uploadHeaders['Authorization'] = `Bearer ${token}`;
   }
 
+  const defaultBase = getDefaultApiBase();
   const bases = [
     activeApiBase,
-    activeApiBase.includes('5000') ? 'http://localhost:5001/api/v1' : 'http://localhost:5000/api/v1'
-  ];
+    defaultBase,
+    ...(defaultBase.includes('5000') ? ['http://localhost:5001/api/v1'] : [])
+  ].filter((v, idx, arr) => arr.indexOf(v) === idx);
 
   let lastError: any = null;
   for (const base of bases) {
@@ -94,8 +108,8 @@ async function apiUpload(formData: FormData): Promise<Response> {
     }
   }
 
-  activeApiBase = 'http://localhost:5000/api/v1';
-  throw lastError || new Error('Upload server unreachable');
+  activeApiBase = defaultBase;
+  throw lastError || new Error(`Upload server unreachable at ${activeApiBase}.`);
 }
 
 interface PhotoItem {
@@ -257,6 +271,25 @@ export default function AdminApp() {
   const [showLoginPassword, setShowLoginPassword] = useState(false);
   const [loginSubmitting, setLoginSubmitting] = useState(false);
   const [loginError, setLoginError] = useState('');
+
+  // Target API Server Endpoint Configuration
+  const [apiServerUrl, setApiServerUrl] = useState(() => getDefaultApiBase());
+  const [showApiServerConfig, setShowApiServerConfig] = useState(false);
+
+  const handleSaveApiServerUrl = (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    let clean = apiServerUrl.trim().replace(/\/+$/, '');
+    if (!clean) return;
+    if (!clean.endsWith('/api/v1')) {
+      clean = `${clean}/api/v1`;
+    }
+    localStorage.setItem('pixel_perfect_api_base', clean);
+    activeApiBase = clean;
+    setApiServerUrl(clean);
+    notify(`Target API endpoint configured: ${clean}`);
+    setShowApiServerConfig(false);
+    setLoginError('');
+  };
 
   // Drag-and-Drop & Visual Registry State
   const [photoViewMode, setPhotoViewMode] = useState<'grid' | 'table'>('grid');
@@ -502,6 +535,7 @@ export default function AdminApp() {
       }
     } catch (err: any) {
       setLoginError(err.message || 'Authentication server unreachable.');
+      setShowApiServerConfig(true);
     } finally {
       setLoginSubmitting(false);
     }
@@ -1007,6 +1041,68 @@ export default function AdminApp() {
             </div>
           )}
 
+          {/* Target API Server Switcher */}
+          <div className="border border-[#262626] bg-[#0D0D0D] p-3 text-xs font-mono space-y-2">
+            <div className="flex items-center justify-between text-[10px]">
+              <span className="text-[#A3A3A3] uppercase tracking-wider flex items-center space-x-1.5 font-bold">
+                <span className={`w-1.5 h-1.5 rounded-full ${apiServerUrl.includes('localhost') ? 'bg-amber-400' : 'bg-emerald-400'}`}></span>
+                <span>API TARGET: {apiServerUrl.includes('localhost') ? 'LOCAL (5000/5001)' : 'RENDER / CLOUD'}</span>
+              </span>
+              <button
+                type="button"
+                onClick={() => setShowApiServerConfig(!showApiServerConfig)}
+                className="text-white hover:underline text-[9px] uppercase tracking-wider"
+              >
+                {showApiServerConfig ? '[COLLAPSE]' : '[CONFIGURE / SWITCH]'}
+              </button>
+            </div>
+
+            <div className="text-[10px] text-[#737373] truncate font-mono">
+              ENDPOINT: <span className="text-white select-all">{apiServerUrl}</span>
+            </div>
+
+            {showApiServerConfig && (
+              <div className="pt-2.5 border-t border-[#1F1F1F] space-y-2.5">
+                <p className="text-[10px] text-[#8C8C8C] leading-relaxed">
+                  Enter your deployed Render backend URL (e.g. <span className="text-white font-mono">https://your-service.onrender.com</span>) to authenticate directly with Render without running a local server.
+                </p>
+                <div className="flex space-x-2">
+                  <input
+                    type="text"
+                    value={apiServerUrl}
+                    onChange={(e) => setApiServerUrl(e.target.value)}
+                    placeholder="https://your-backend.onrender.com/api/v1"
+                    className="flex-1 px-3 py-2 bg-black border border-[#333] text-white text-[11px] focus:outline-none focus:border-white font-mono"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => handleSaveApiServerUrl()}
+                    className="px-3.5 py-2 bg-white text-black font-bold uppercase text-[10px] tracking-wider hover:bg-neutral-200 transition-colors"
+                  >
+                    APPLY
+                  </button>
+                </div>
+                <div className="flex items-center justify-between pt-1 text-[9px]">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setApiServerUrl('http://localhost:5000/api/v1');
+                      localStorage.setItem('pixel_perfect_api_base', 'http://localhost:5000/api/v1');
+                      activeApiBase = 'http://localhost:5000/api/v1';
+                      notify('Reset API to Localhost (5000)');
+                      setShowApiServerConfig(false);
+                      setLoginError('');
+                    }}
+                    className="text-[#737373] hover:text-white uppercase tracking-wider underline"
+                  >
+                    Reset to Localhost (5000)
+                  </button>
+                  <span className="text-[#525252]">SAVED IN LOCALSTORAGE</span>
+                </div>
+              </div>
+            )}
+          </div>
+
           <form onSubmit={handleLogin} className="space-y-4 text-xs font-mono">
             <div className="space-y-1">
               <label className="text-[10px] text-[#A3A3A3] font-bold uppercase tracking-wider block">
@@ -1079,6 +1175,9 @@ export default function AdminApp() {
           </span>
           <span className="bg-[#262626] text-emerald-400 font-mono text-[9px] px-2 py-0.5 tracking-widest uppercase hidden sm:inline">
             AUTHENTICATED // {currentUser?.name || siteConfig.photographerName}
+          </span>
+          <span className="bg-[#171717] text-[#A3A3A3] border border-[#2B2B2B] font-mono text-[9px] px-2 py-0.5 tracking-wider uppercase hidden md:inline" title={getDefaultApiBase()}>
+            API: {getDefaultApiBase().replace(/^https?:\/\//, '').slice(0, 30)}
           </span>
         </div>
 
