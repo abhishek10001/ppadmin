@@ -30,7 +30,7 @@ import {
   X
 } from 'lucide-react';
 
-let activeApiBase = 'http://localhost:5000/api/v1';
+let activeApiBase = (import.meta as any).env?.VITE_API_URL || 'http://localhost:5000/api/v1';
 
 async function apiFetch(path: string, options?: RequestInit): Promise<Response> {
   const token = localStorage.getItem('pixel_perfect_admin_token');
