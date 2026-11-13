@@ -1,0 +1,16 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  *, *::before, *::after {
+    border-radius: 0px !important;
+  }
+
+  body {
+    background-color: #FFFFFF;
+    color: #0A0A0A;
+    -webkit-font-smoothing: antialiased;
+  }
+}
+
