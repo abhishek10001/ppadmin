@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { optimizeImageForWeb, OptimizationMode } from './utils/imageOptimizer';
 import {
   Camera,
   FileText,
@@ -325,9 +326,12 @@ export default function AdminApp() {
     galleryPhotos: []
   });
 
+  // In-Browser Archival Image Optimizer Mode
+  const [optimizationMode, setOptimizationMode] = useState<OptimizationMode>('archival');
+
   const notify = (message: string, type: 'success' | 'error' = 'success') => {
     setNotification({ message, type });
-    setTimeout(() => setNotification(null), 4000);
+    setTimeout(() => setNotification(null), 6000);
   };
 
   const [uploadingTarget, setUploadingTarget] = useState<string | null>(null);
@@ -342,12 +346,26 @@ export default function AdminApp() {
   const handleDirectUpload = async (file: File, target: 'hero' | 'about' | 'photo' | 'dispatch') => {
     if (!file) return;
     setUploadingTarget(target);
-    notify('Uploading image via Multer to Cloudinary...', 'success');
 
     try {
+      let fileToUpload = file;
+      if (file.size > 800 * 1024 && optimizationMode !== 'original') {
+        const origMB = (file.size / (1024 * 1024)).toFixed(1);
+        notify(`Optimizing ${file.name} (${origMB} MB) to 4K archival plate...`);
+        const opt = await optimizeImageForWeb(file, optimizationMode, (msg) => {
+          notify(`${msg} [${origMB} MB]`);
+        });
+        fileToUpload = opt.file;
+        if (opt.wasOptimized) {
+          notify(`Optimized: ${opt.summary}. Transmitting to Cloudinary...`);
+        }
+      } else {
+        notify('Transmitting image to Cloudinary...');
+      }
+
       const formData = new FormData();
-      formData.append('file', file);
-      formData.append('folder', 'pixel_perfect');
+      formData.append('file', fileToUpload);
+      formData.append('folder', target === 'dispatch' ? 'pixel_perfect/dispatches' : 'pixel_perfect');
 
       const res = await apiUpload(formData);
       const d = await res.json();
@@ -387,7 +405,7 @@ export default function AdminApp() {
               ex.aperture,
               ex.iso
             ].filter(Boolean).join(' • ');
-            notify(`Photo uploaded & EXIF metadata extracted! (${summaryParts})`);
+            notify(`Photo uploaded & EXIF extracted! (${summaryParts})`);
           } else {
             setPhotoForm(prev => ({ ...prev, imageUrl: url }));
             setExifExtracted(false);
@@ -402,31 +420,78 @@ export default function AdminApp() {
         notify(d.error || 'Upload to Cloudinary failed', 'error');
       }
     } catch (err: any) {
-      notify(`Multer upload error: ${err.message}`, 'error');
+      notify(`Upload error: ${err.message}`, 'error');
     } finally {
       setUploadingTarget(null);
     }
   };
 
   const renderUploadZone = (target: 'hero' | 'about' | 'photo' | 'dispatch', label = 'CHOOSE FILE FROM COMPUTER (OR DRAG & DROP)') => (
-    <div className="relative border-2 border-dashed border-black p-4 bg-[#FAFAFA] hover:bg-[#F0F0F0] transition-colors text-center cursor-pointer group">
-      <input
-        type="file"
-        accept="image/*"
-        disabled={uploadingTarget === target}
-        onChange={e => {
-          if (e.target.files?.[0]) handleDirectUpload(e.target.files[0], target);
-        }}
-        className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10"
-      />
-      <div className="flex flex-col items-center justify-center space-y-1.5">
-        <Upload className={`w-5 h-5 text-black ${uploadingTarget === target ? 'animate-bounce text-emerald-600' : 'group-hover:-translate-y-0.5 transition-transform'}`} />
-        <span className="font-bold text-xs uppercase tracking-wider text-black">
-          {uploadingTarget === target ? 'UPLOADING TO CLOUDINARY...' : label}
+    <div className="space-y-1.5">
+      <div className="relative border-2 border-dashed border-black p-4 bg-[#FAFAFA] hover:bg-[#F0F0F0] transition-colors text-center cursor-pointer group">
+        <input
+          type="file"
+          accept="image/*"
+          disabled={uploadingTarget === target}
+          onChange={e => {
+            if (e.target.files?.[0]) handleDirectUpload(e.target.files[0], target);
+          }}
+          className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10"
+        />
+        <div className="flex flex-col items-center justify-center space-y-1.5">
+          <Upload className={`w-5 h-5 text-black ${uploadingTarget === target ? 'animate-bounce text-emerald-600' : 'group-hover:-translate-y-0.5 transition-transform'}`} />
+          <span className="font-bold text-xs uppercase tracking-wider text-black">
+            {uploadingTarget === target ? 'OPTIMIZING & TRANSMITTING...' : label}
+          </span>
+          <span className="text-[10px] text-[#737373]">
+            Direct upload (JPG, PNG, WEBP) • Automatic in-browser 4K optimization (EXIF preserved)
+          </span>
+        </div>
+      </div>
+
+      <div className="flex flex-wrap items-center justify-between text-[9px] text-[#737373] px-1 font-mono gap-1">
+        <span className="uppercase flex items-center space-x-1.5 font-bold">
+          <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
+          <span>AUTO-OPTIMIZE 10MB+ PLATES:</span>
         </span>
-        <span className="text-[10px] text-[#737373]">
-          Direct upload (JPG, PNG, WEBP) — No URL copy-pasting required
-        </span>
+        <div className="flex items-center space-x-1">
+          <button
+            type="button"
+            onClick={(e) => { e.preventDefault(); setOptimizationMode('archival'); }}
+            className={`px-1.5 py-0.5 uppercase tracking-wider transition-colors ${
+              optimizationMode === 'archival'
+                ? 'bg-black text-white font-bold'
+                : 'bg-neutral-200 text-[#525252] hover:text-black'
+            }`}
+            title="Max 2560px (4K Retina) at 92% quality with 100% EXIF preserved"
+          >
+            4K Archival (92%)
+          </button>
+          <button
+            type="button"
+            onClick={(e) => { e.preventDefault(); setOptimizationMode('ultra'); }}
+            className={`px-1.5 py-0.5 uppercase tracking-wider transition-colors ${
+              optimizationMode === 'ultra'
+                ? 'bg-black text-white font-bold'
+                : 'bg-neutral-200 text-[#525252] hover:text-black'
+            }`}
+            title="Max 3840px (Ultra 4K) at 95% quality"
+          >
+            Master 4K (95%)
+          </button>
+          <button
+            type="button"
+            onClick={(e) => { e.preventDefault(); setOptimizationMode('original'); }}
+            className={`px-1.5 py-0.5 uppercase tracking-wider transition-colors ${
+              optimizationMode === 'original'
+                ? 'bg-black text-white font-bold'
+                : 'bg-neutral-200 text-[#525252] hover:text-black'
+            }`}
+            title="Bypass client-side compression (raw file size)"
+          >
+            Raw Original
+          </button>
+        </div>
       </div>
     </div>
   );
@@ -898,7 +963,7 @@ export default function AdminApp() {
     if (!files || files.length === 0) return;
     const fileList = Array.from(files);
     setDispatchGalleryUploading(true);
-    notify(`Uploading ${fileList.length} image(s) to Cloudinary for story gallery...`);
+    notify(`Preparing ${fileList.length} image(s) for story gallery...`);
 
     const newUploadedPhotos: DispatchGalleryPhoto[] = [];
     let failureCount = 0;
@@ -906,8 +971,17 @@ export default function AdminApp() {
     for (let i = 0; i < fileList.length; i++) {
       const file = fileList[i];
       try {
+        let fileToUpload = file;
+        if (file.size > 800 * 1024 && optimizationMode !== 'original') {
+          const origMB = (file.size / (1024 * 1024)).toFixed(1);
+          notify(`Optimizing plate ${i + 1}/${fileList.length}: ${file.name} (${origMB} MB)...`);
+          const opt = await optimizeImageForWeb(file, optimizationMode);
+          fileToUpload = opt.file;
+        }
+
+        notify(`Uploading plate ${i + 1}/${fileList.length} to Cloudinary...`);
         const formData = new FormData();
-        formData.append('file', file);
+        formData.append('file', fileToUpload);
         formData.append('folder', 'pixel_perfect/dispatches');
 
         const res = await apiUpload(formData);
@@ -1161,6 +1235,33 @@ export default function AdminApp() {
           <span>© {new Date().getFullYear()} PIXEL PERFECT</span>
           <span>HS256 ENCRYPTED SESSION</span>
         </div>
+
+        {/* Global Floating Notification Toast (High Z-Index above all screens) */}
+        {notification && (
+          <div className="fixed top-5 right-5 sm:right-8 z-[99999] max-w-md w-[92vw] sm:w-auto shadow-2xl pointer-events-auto">
+            <div className={`p-4 font-mono text-xs flex items-center justify-between space-x-3.5 border-2 bg-[#0A0A0A] text-white ${
+              notification.type === 'success' ? 'border-emerald-500 shadow-emerald-950/50' : 'border-red-500 shadow-red-950/50'
+            }`}>
+              <div className="flex items-center space-x-2.5 min-w-0">
+                {notification.type === 'success' ? (
+                  <CheckCircle className="w-4 h-4 text-emerald-400 flex-shrink-0 animate-pulse" />
+                ) : (
+                  <AlertCircle className="w-4 h-4 text-red-400 flex-shrink-0" />
+                )}
+                <span className="font-bold tracking-tight text-white leading-snug break-words">
+                  {notification.message}
+                </span>
+              </div>
+              <button
+                onClick={() => setNotification(null)}
+                className="text-[#737373] hover:text-white text-[10px] uppercase tracking-wider flex-shrink-0 border border-[#333] px-1.5 py-0.5 hover:bg-[#222]"
+                title="Dismiss notification"
+              >
+                ✕
+              </button>
+            </div>
+          </div>
+        )}
       </div>
     );
   }
@@ -1211,16 +1312,6 @@ export default function AdminApp() {
           </button>
         </div>
       </header>
-
-      {/* Notification Toast */}
-      {notification && (
-        <div className={`p-3 text-xs font-mono flex items-center space-x-2 border-b ${
-          notification.type === 'success' ? 'bg-emerald-500 text-black border-emerald-600' : 'bg-red-600 text-white border-red-700'
-        }`}>
-          {notification.type === 'success' ? <CheckCircle className="w-4 h-4" /> : <AlertCircle className="w-4 h-4" />}
-          <span className="font-bold">{notification.message}</span>
-        </div>
-      )}
 
       {/* Navigation Tabs */}
       <nav className="border-b border-[#E5E5E5] bg-[#FAFAFA] px-6 flex space-x-8 font-mono text-xs overflow-x-auto">
@@ -2539,23 +2630,70 @@ export default function AdminApp() {
                 </div>
 
                 {/* Multiple Upload Dropzone */}
-                <div className="relative border-2 border-dashed border-black p-4 bg-white hover:bg-[#F9F9F9] transition-colors text-center cursor-pointer group">
-                  <input
-                    type="file"
-                    multiple
-                    accept="image/*"
-                    disabled={dispatchGalleryUploading}
-                    onChange={e => handleBatchGalleryUpload(e.target.files)}
-                    className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10"
-                  />
-                  <div className="flex flex-col items-center justify-center space-y-1.5">
-                    <Upload className={`w-5 h-5 text-black ${dispatchGalleryUploading ? 'animate-bounce text-emerald-600' : 'group-hover:-translate-y-0.5 transition-transform'}`} />
-                    <span className="font-bold text-xs uppercase tracking-wider text-black">
-                      {dispatchGalleryUploading ? 'UPLOADING MULTIPLE IMAGES TO CLOUDINARY...' : 'SELECT MULTIPLE IMAGES FOR THIS JOURNAL'}
+                <div className="space-y-1.5">
+                  <div className="relative border-2 border-dashed border-black p-4 bg-white hover:bg-[#F9F9F9] transition-colors text-center cursor-pointer group">
+                    <input
+                      type="file"
+                      multiple
+                      accept="image/*"
+                      disabled={dispatchGalleryUploading}
+                      onChange={e => handleBatchGalleryUpload(e.target.files)}
+                      className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10"
+                    />
+                    <div className="flex flex-col items-center justify-center space-y-1.5">
+                      <Upload className={`w-5 h-5 text-black ${dispatchGalleryUploading ? 'animate-bounce text-emerald-600' : 'group-hover:-translate-y-0.5 transition-transform'}`} />
+                      <span className="font-bold text-xs uppercase tracking-wider text-black">
+                        {dispatchGalleryUploading ? 'OPTIMIZING & TRANSMITTING GALLERY PLATES...' : 'SELECT MULTIPLE IMAGES FOR THIS JOURNAL'}
+                      </span>
+                      <span className="text-[10px] text-[#737373]">
+                        Click or drag multiple files at once • Auto-optimizes 10MB+ images to 4K web plates
+                      </span>
+                    </div>
+                  </div>
+
+                  <div className="flex flex-wrap items-center justify-between text-[9px] text-[#737373] px-1 font-mono gap-1">
+                    <span className="uppercase flex items-center space-x-1.5 font-bold">
+                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
+                      <span>AUTO-OPTIMIZE BATCH:</span>
                     </span>
-                    <span className="text-[10px] text-[#737373]">
-                      Click or drag multiple files at once • JPG, PNG, WEBP
-                    </span>
+                    <div className="flex items-center space-x-1">
+                      <button
+                        type="button"
+                        onClick={(e) => { e.preventDefault(); setOptimizationMode('archival'); }}
+                        className={`px-1.5 py-0.5 uppercase tracking-wider transition-colors ${
+                          optimizationMode === 'archival'
+                            ? 'bg-black text-white font-bold'
+                            : 'bg-neutral-200 text-[#525252] hover:text-black'
+                        }`}
+                        title="Max 2560px at 92% quality with EXIF preserved"
+                      >
+                        4K Archival (92%)
+                      </button>
+                      <button
+                        type="button"
+                        onClick={(e) => { e.preventDefault(); setOptimizationMode('ultra'); }}
+                        className={`px-1.5 py-0.5 uppercase tracking-wider transition-colors ${
+                          optimizationMode === 'ultra'
+                            ? 'bg-black text-white font-bold'
+                            : 'bg-neutral-200 text-[#525252] hover:text-black'
+                        }`}
+                        title="Max 3840px (Ultra 4K) at 95% quality"
+                      >
+                        Master 4K (95%)
+                      </button>
+                      <button
+                        type="button"
+                        onClick={(e) => { e.preventDefault(); setOptimizationMode('original'); }}
+                        className={`px-1.5 py-0.5 uppercase tracking-wider transition-colors ${
+                          optimizationMode === 'original'
+                            ? 'bg-black text-white font-bold'
+                            : 'bg-neutral-200 text-[#525252] hover:text-black'
+                        }`}
+                        title="Bypass client-side compression"
+                      >
+                        Raw Original
+                      </button>
+                    </div>
                   </div>
                 </div>
 
@@ -2646,6 +2784,33 @@ export default function AdminApp() {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Global Floating Notification Toast (High Z-Index so it appears directly above all modals, cards, and upload dialogs) */}
+      {notification && (
+        <div className="fixed top-5 right-5 sm:right-8 z-[99999] max-w-md w-[92vw] sm:w-auto shadow-2xl pointer-events-auto">
+          <div className={`p-4 font-mono text-xs flex items-center justify-between space-x-3.5 border-2 bg-[#0A0A0A] text-white ${
+            notification.type === 'success' ? 'border-emerald-500 shadow-emerald-950/50' : 'border-red-500 shadow-red-950/50'
+          }`}>
+            <div className="flex items-center space-x-2.5 min-w-0">
+              {notification.type === 'success' ? (
+                <CheckCircle className="w-4 h-4 text-emerald-400 flex-shrink-0 animate-pulse" />
+              ) : (
+                <AlertCircle className="w-4 h-4 text-red-400 flex-shrink-0" />
+              )}
+              <span className="font-bold tracking-tight text-white leading-snug break-words">
+                {notification.message}
+              </span>
+            </div>
+            <button
+              onClick={() => setNotification(null)}
+              className="text-[#737373] hover:text-white text-[10px] uppercase tracking-wider flex-shrink-0 border border-[#333] px-1.5 py-0.5 hover:bg-[#222]"
+              title="Dismiss notification"
+            >
+              ✕
+            </button>
           </div>
         </div>
       )}
