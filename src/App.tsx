@@ -1412,21 +1412,29 @@ export default function AdminApp() {
 
                 {/* Hero Preview */}
                 <div className="space-y-1">
-                  <label className="text-[10px] text-[#737373] uppercase tracking-wider block">IMAGE PREVIEW (PANORAMIC)</label>
-                  <div className="aspect-[21/9] bg-[#0A0A0A] overflow-hidden border border-[#E5E5E5]">
+                  <div className="flex items-center justify-between">
+                    <label className="text-[10px] text-[#737373] uppercase tracking-wider block font-bold">IMAGE PREVIEW (16:9 HERO CROP)</label>
+                    <span className="text-[9px] font-mono text-emerald-700 bg-emerald-50 border border-emerald-200 px-2 py-0.5 uppercase tracking-wider font-semibold">
+                      AUTO-CROPS TO 16:9
+                    </span>
+                  </div>
+                  <div className="aspect-[16/9] bg-[#0A0A0A] overflow-hidden border border-black relative group">
                     {/* eslint-disable-next-line @next/next/no-img-element */}
                     <img
                       src={siteConfig.heroPlate.imageUrl}
                       alt={siteConfig.heroPlate.title}
-                      className="w-full h-full object-cover"
+                      className="w-full h-full object-cover object-center"
                     />
+                    <div className="absolute bottom-2 left-2 bg-black/80 text-white font-mono text-[9px] px-2 py-0.5 uppercase tracking-wider">
+                      16:9 HERO FRAME PREVIEW
+                    </div>
                   </div>
                 </div>
 
                 {/* Direct Image Upload */}
                 <div className="space-y-1">
                   <label className="text-[10px] font-bold text-black uppercase">DIRECT IMAGE UPLOAD (CLOUDINARY)</label>
-                  {renderUploadZone('hero', 'UPLOAD HERO IMAGE FILE (JPG, PNG, WEBP)')}
+                  {renderUploadZone('hero', 'UPLOAD HERO IMAGE FILE (AUTO-CROPPED TO 16:9)')}
                 </div>
 
                 <div className="space-y-1">
